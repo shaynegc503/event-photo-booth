@@ -1,149 +1,91 @@
 <!doctype html>
-<html lang="en">
+<html lang="zh-Hant">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#111">
 <title>Event Photo Booth</title>
 <style>
-*{box-sizing:border-box}
-html,body{margin:0;background:#111;color:#fff;font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
-body{min-height:100vh;display:flex;justify-content:center}
-.app{width:min(100%,720px);min-height:100vh;padding:18px 14px 28px;display:flex;flex-direction:column;gap:14px}
-h1{font-size:22px;margin:0;text-align:center}
-.stage{position:relative;width:100%;aspect-ratio:9/16;background:#000;overflow:hidden;border-radius:18px}
-video,canvas,.overlay{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
-video{transform:scaleX(-1)}
-.overlay{pointer-events:none}
-canvas{display:none}
-.controls{display:flex;gap:10px;justify-content:center;flex-wrap:wrap}
-button{border:0;border-radius:999px;padding:14px 20px;font-size:16px;font-weight:700;background:#fff;color:#111}
-button.secondary{background:#333;color:#fff}
-button:disabled{opacity:.45}
-#result{display:none}
-#photo{width:100%;border-radius:18px;display:block}
-.hint{text-align:center;color:#aaa;font-size:13px;line-height:1.4;margin:0}
-.file{display:none}
+*{box-sizing:border-box}html,body{margin:0;background:#111;color:#fff;font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+body{min-height:100vh;display:flex;justify-content:center}.app{width:min(100%,720px);min-height:100vh;padding:16px 14px 28px;display:flex;flex-direction:column;gap:12px}
+h1{font-size:21px;margin:0;text-align:center}.stage{position:relative;width:100%;aspect-ratio:9/16;background:#000;overflow:hidden;border-radius:18px}
+video,.overlay{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}.video-wrap{position:absolute;inset:0;overflow:hidden}
+video{transform-origin:center center}.overlay{pointer-events:none}.controls{display:flex;gap:10px;justify-content:center;align-items:center;flex-wrap:wrap}
+button{border:0;border-radius:999px;padding:13px 19px;font-size:16px;font-weight:700;background:#fff;color:#111}button.secondary{background:#333;color:#fff}
+button:disabled{opacity:.45}.zoombox{display:flex;align-items:center;gap:10px;background:#222;border-radius:16px;padding:10px 14px}
+.zoombox label{font-size:14px;white-space:nowrap}#zoom{width:min(55vw,300px)}#zoomValue{min-width:42px;text-align:center;font-variant-numeric:tabular-nums}
+#result{display:none}#photo{width:100%;border-radius:18px;display:block}.hint{text-align:center;color:#aaa;font-size:13px;line-height:1.4;margin:0}canvas{display:none}
 </style>
 </head>
 <body>
 <div class="app">
-  <h1>Event Photo Booth</h1>
-
-  <div class="stage" id="stage">
-    <video id="video" autoplay playsinline muted></video>
-    <img id="overlay" class="overlay" src="frame.png" alt="">
-    <canvas id="canvas"></canvas>
-  </div>
-
-  <div class="controls">
-    <button id="start">Start camera</button>
-    <button id="capture" disabled>Take photo</button>
-    <button id="switch" class="secondary" disabled>Switch camera</button>
-  </div>
-
-  <div id="result">
-    <img id="photo" alt="Your finished event photo">
-    <div class="controls" style="margin-top:12px">
-      <button id="download">Download photo</button>
-      <button id="retake" class="secondary">Retake</button>
-    </div>
-  </div>
-
-  <p class="hint">No app installation. Your photo is processed on this device and is not uploaded by this page.</p>
+<h1>Event Photo Booth</h1>
+<div class="stage" id="stage">
+  <div class="video-wrap"><video id="video" autoplay playsinline muted></video></div>
+  <img id="overlay" class="overlay" src="frame.png" alt="">
+  <canvas id="canvas"></canvas>
 </div>
-
+<div class="controls">
+  <button id="start">Start camera</button><button id="capture" disabled>Take photo</button><button id="switch" class="secondary" disabled>Switch camera</button>
+</div>
+<div class="controls"><div class="zoombox"><label for="zoom">Zoom</label><input id="zoom" type="range" min="1" max="3" step="0.05" value="1" disabled><span id="zoomValue">1.0×</span></div></div>
+<div id="result"><img id="photo" alt="Your finished event photo"><div class="controls" style="margin-top:12px"><button id="download">Download photo</button><button id="retake" class="secondary">Retake</button></div></div>
+<p class="hint">No app installation. The photo is processed on this device.</p>
+</div>
 <script>
-const video = document.getElementById('video');
-const overlay = document.getElementById('overlay');
-const canvas = document.getElementById('canvas');
-const startBtn = document.getElementById('start');
-const captureBtn = document.getElementById('capture');
-const switchBtn = document.getElementById('switch');
-const result = document.getElementById('result');
-const photo = document.getElementById('photo');
-const downloadBtn = document.getElementById('download');
-const retakeBtn = document.getElementById('retake');
+const video=document.getElementById('video'), overlay=document.getElementById('overlay'), canvas=document.getElementById('canvas');
+const startBtn=document.getElementById('start'), captureBtn=document.getElementById('capture'), switchBtn=document.getElementById('switch');
+const zoom=document.getElementById('zoom'), zoomValue=document.getElementById('zoomValue'), result=document.getElementById('result');
+const photo=document.getElementById('photo'), downloadBtn=document.getElementById('download'), retakeBtn=document.getElementById('retake'), stage=document.getElementById('stage');
+let stream=null,facingMode='user',lastDataUrl=null,nativeZoom=false;
 
-let stream = null;
-let facingMode = 'user';
-let lastDataUrl = null;
+function track(){return stream?stream.getVideoTracks()[0]:null}
+function updateZoomUI(){zoomValue.textContent=Number(zoom.value).toFixed(1)+'×'}
 
+async function setupZoom(){
+ const t=track(); if(!t)return;
+ const c=t.getCapabilities?t.getCapabilities():{};
+ nativeZoom=!!(c.zoom&&Number.isFinite(c.zoom.min)&&Number.isFinite(c.zoom.max));
+ if(nativeZoom){zoom.min=c.zoom.min;zoom.max=c.zoom.max;zoom.step=c.zoom.step||0.05;zoom.value=Math.max(c.zoom.min,Math.min(c.zoom.max,t.getSettings().zoom??c.zoom.min))}
+ else {zoom.min=1;zoom.max=3;zoom.step=.05;zoom.value=1}
+ zoom.disabled=false;updateZoomUI();
+}
+async function applyZoom(){
+ updateZoomUI();const t=track();if(!t)return;const z=Number(zoom.value);
+ if(nativeZoom){try{await t.applyConstraints({advanced:[{zoom:z}]})}catch(e){}}
+ else video.style.transform=(facingMode==='user'?'scaleX(-1) ':'')+'scale('+z+')';
+}
 async function startCamera(){
-  if (stream) stream.getTracks().forEach(t => t.stop());
-  try {
-    stream = await navigator.mediaDevices.getUserMedia({
-      video: {facingMode: facingMode, width:{ideal:1080}, height:{ideal:1920}},
-      audio: false
-    });
-    video.srcObject = stream;
-    await video.play();
-    captureBtn.disabled = false;
-    switchBtn.disabled = false;
-    startBtn.textContent = 'Camera on';
-  } catch(e) {
-    alert('Camera access was not available. Please allow camera permission and open this page over HTTPS.');
-  }
+ if(stream)stream.getTracks().forEach(t=>t.stop());
+ try{
+  stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:facingMode},width:{ideal:1920},height:{ideal:1080}},audio:false});
+  video.srcObject=stream;await video.play();
+  video.style.transform=facingMode==='user'?'scaleX(-1)':'none';
+  await setupZoom();await applyZoom();
+  captureBtn.disabled=false;switchBtn.disabled=false;startBtn.textContent='Camera on';
+ }catch(e){alert('Camera access failed. Please allow camera permission and open this page over HTTPS.')}
 }
-
+function crop(vw,vh,W,H,z){
+ const target=W/H,ratio=vw/vh;let sw,sh;
+ if(ratio>target){sh=vh;sw=vh*target}else{sw=vw;sh=vw/target}
+ sw/=z;sh/=z;return {sx:(vw-sw)/2,sy:(vh-sh)/2,sw,sh};
+}
 function capture(){
-  const W = 1080, H = 1920;
-  canvas.width = W; canvas.height = H;
-  const ctx = canvas.getContext('2d');
-
-  // Cover-crop the camera image to the 9:16 frame.
-  const vw = video.videoWidth, vh = video.videoHeight;
-  const targetRatio = W/H;
-  const sourceRatio = vw/vh;
-  let sx=0, sy=0, sw=vw, sh=vh;
-  if(sourceRatio > targetRatio){
-    sw = vh * targetRatio;
-    sx = (vw-sw)/2;
-  } else {
-    sh = vw / targetRatio;
-    sy = (vh-sh)/2;
-  }
-
-  ctx.save();
-  // Mirror only the front camera to match the preview.
-  if(facingMode === 'user'){
-    ctx.translate(W,0); ctx.scale(-1,1);
-  }
-  ctx.drawImage(video, sx, sy, sw, sh, 0, 0, W, H);
-  ctx.restore();
-
-  // Draw the transparent PNG frame on top.
-  ctx.drawImage(overlay, 0, 0, W, H);
-
-  lastDataUrl = canvas.toDataURL('image/jpeg', 0.92);
-  photo.src = lastDataUrl;
-  result.style.display = 'block';
-  document.getElementById('stage').style.display = 'none';
-  captureBtn.disabled = true;
+ if(!video.videoWidth)return;
+ const W=1080,H=1920,ctx=canvas.getContext('2d');canvas.width=W;canvas.height=H;
+ const c=crop(video.videoWidth,video.videoHeight,W,H,Number(zoom.value));
+ ctx.save();if(facingMode==='user'){ctx.translate(W,0);ctx.scale(-1,1)}
+ ctx.drawImage(video,c.sx,c.sy,c.sw,c.sh,0,0,W,H);ctx.restore();
+ ctx.drawImage(overlay,0,0,W,H);
+ lastDataUrl=canvas.toDataURL('image/jpeg',.92);photo.src=lastDataUrl;
+ result.style.display='block';stage.style.display='none';captureBtn.disabled=true;
 }
-
-function retake(){
-  result.style.display = 'none';
-  document.getElementById('stage').style.display = 'block';
-  captureBtn.disabled = !stream;
-}
-
-switchBtn.addEventListener('click', async ()=>{
-  facingMode = facingMode === 'user' ? 'environment' : 'user';
-  await startCamera();
-});
-startBtn.addEventListener('click', startCamera);
-captureBtn.addEventListener('click', capture);
-retakeBtn.addEventListener('click', retake);
-downloadBtn.addEventListener('click', ()=>{
-  if(!lastDataUrl) return;
-  const a = document.createElement('a');
-  a.href = lastDataUrl;
-  a.download = 'event-photo.jpg';
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-});
+function retake(){result.style.display='none';stage.style.display='block';captureBtn.disabled=!stream}
+zoom.addEventListener('input',applyZoom);startBtn.addEventListener('click',startCamera);
+switchBtn.addEventListener('click',async()=>{facingMode=facingMode==='user'?'environment':'user';await startCamera()});
+captureBtn.addEventListener('click',capture);retakeBtn.addEventListener('click',retake);
+downloadBtn.addEventListener('click',()=>{if(!lastDataUrl)return;const a=document.createElement('a');a.href=lastDataUrl;a.download='event-photo.jpg';document.body.appendChild(a);a.click();a.remove()});
+updateZoomUI();
 </script>
 </body>
 </html>
